@@ -1,24 +1,46 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using SOD.Common;
 using UnityEngine;
 using UnityStandardAssets.Characters.FirstPerson;
 using static Il2CppMono.Security.X509.X520;
+using System.IO;
+using SOD.Common.Extensions;
 
 namespace DevTools
 {
+    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
+    public class CommandAttribute : Attribute
+    {
+        public string CommandName { get; }
+        public CommandAttribute(string commandName)
+        {
+            CommandName = commandName;
+        }
+    }
+
     public static class CommandManager
     {
         private static Dictionary<string, Action<string[]>> commands = new Dictionary<string, Action<string[]>>();
+        private static Dictionary<string, Vector3> teleportPoints = new Dictionary<string, Vector3>();
+
         private static bool godmode = false;
+        private static bool noclip = false;
+        public static Human storedHuman;
+        public static Interactable storedItem;
 
         public static MurderController murderController;
         public static Player player;
         public static PlayerInfoProvider playerInfoProvider;
         public static VictimInfoHelper victimInfoHelper;
         public static MurdererInfoProvider murdererInfoProvider;
+        public static StoredHumanInfoProvider storedHumanInfoProvider;
+        public static PurpInfoProvider purpInfoProvider;
+        public static PosterInfoProvider posterInfoProvider;
         public static GameplayController controller;
+        public static SideJob sideJob;
 
         static CommandManager()
         {
@@ -27,30 +49,17 @@ namespace DevTools
 
         public static void Initialize()
         {
-            RegisterCommand("/help", HelpCommand);
-            RegisterCommand("/hello", HelloCommand);
-            RegisterCommand("/goodbye", GoodbyeCommand);
-            RegisterCommand("/say", SayCommand);
-            RegisterCommand("/poison", PoisonEntityCommand);
-            RegisterCommand("/kill", KillEntityCommand);
-            RegisterCommand("/killall", KillAllCommand);
-            RegisterCommand("/destroyMe", DeleteMeCommand);
-            RegisterCommand("/tp", TeleportCommand);
-            RegisterCommand("/tpe", TeleportEntityCommand);
-            RegisterCommand("/mName", GetMurdererFullName);
-            RegisterCommand("/vName", GetVictimFullName);
-            RegisterCommand("/god", GodCommand);
-            RegisterCommand("/resetHealth", ResetHealthCommand);
-            RegisterCommand("/giveMoney", GiveMoneyCommand);
-            RegisterCommand("/currentNode", CurrentNodeCommand);
-            RegisterCommand("/pos", PosCommand);
-            RegisterCommand("/passcode", GetEntityPasscodeCommand);
-            RegisterCommand("/setPasscode", SetPasscodeCommand);
-            RegisterCommand("/allowedEverywhere", allowedEverywhereCommand);
-            RegisterCommand("/disableBadEffects", disableBadEffectsCommand);
+            var methods = typeof(CommandManager).GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
+                .Where(m => m.GetCustomAttribute<CommandAttribute>() != null);
+
+            foreach (var method in methods)
+            {
+                var attribute = method.GetCustomAttribute<CommandAttribute>();
+                RegisterCommands(attribute.CommandName, (Action<string[]>)Delegate.CreateDelegate(typeof(Action<string[]>), method));
+            }
         }
 
-        public static void RegisterCommand(string commandName, Action<string[]> commandAction)
+        public static void RegisterCommands(string commandName, Action<string[]> commandAction)
         {
             commands[commandName.ToLower()] = commandAction;
         }
@@ -59,7 +68,10 @@ namespace DevTools
         {
             playerInfoProvider = new PlayerInfoProvider();
             victimInfoHelper = new VictimInfoHelper();
+            purpInfoProvider = new PurpInfoProvider();
+            posterInfoProvider = new PosterInfoProvider();
             murdererInfoProvider = new MurdererInfoProvider();
+            storedHumanInfoProvider = new StoredHumanInfoProvider();
             player = Player.Instance;
             murderController = MurderController.Instance;
 
@@ -93,20 +105,10 @@ namespace DevTools
         {
             Lib.GameMessage.ShowPlayerSpeech(message, 5, true);
             DevTools.Logger.LogInfo($"Chat Message Sent: {message}");
+            ExtModLog.LogInfo($"Chat Message Sent: {message}");
         }
 
-        private static void HelloCommand(string[] args)
-        {
-            DevTools.Logger.LogInfo("Hello, World!");
-            Lib.GameMessage.ShowPlayerSpeech("Hello, Player!", 2, true);
-        }
-
-        private static void GoodbyeCommand(string[] args)
-        {
-            DevTools.Logger.LogInfo("Goodbye, World!");
-            Lib.GameMessage.ShowPlayerSpeech("Goodbye, Player!", 2, true);
-        }
-
+        [Command("/say")]
         private static void SayCommand(string[] args)
         {
             if (args.Length < 3) // Ensure there are at least 3 arguments: message, float, and bool
@@ -139,16 +141,29 @@ namespace DevTools
             DevTools.Logger.LogInfo($"Command Executed: {message}, Float: {someFloatValue}, Bool: {someBoolValue}");
         }
 
-        private static void DeleteMeCommand(string[] args)
+        [Command("/cloneMe")]
+        private static void CloneMeCommand(string[] args)
         {
             FirstPersonController fpsController = GameObject.FindObjectOfType<FirstPersonController>();
-            UnityEngine.Object.Destroy(fpsController);
-            Lib.GameMessage.ShowPlayerSpeech("Deleting the player, wow!", 2, true);
+
+            if (fpsController != null)
+            {
+                GameObject newFpsController = UnityEngine.Object.Instantiate(fpsController.gameObject, new Vector3(1, 1, 1), fpsController.transform.rotation);
+
+                newFpsController.name = fpsController.name + "player_clone";
+
+                Lib.GameMessage.ShowPlayerSpeech("Cloning the player...", 2, true);
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Player not found!", 2, true);
+            }
         }
 
+        [Command("/tp")]
         private static void TeleportCommand(string[] args)
         {
-            if (args.Length < 3) 
+            if (args.Length < 3)
             {
                 Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /tp <x> <y> <z>", 2, true);
                 return;
@@ -163,12 +178,13 @@ namespace DevTools
             }
 
             Vector3 newLocation = new Vector3(x, y, z);
-            
+
             playerInfoProvider.SetPlayerLocation(newLocation);
 
             Lib.GameMessage.ShowPlayerSpeech($"Teleported to {newLocation}", 2, true);
         }
 
+        [Command("/tpe")]
         private static void TeleportEntityCommand(string[] args)
         {
             if (args.Length != 2)
@@ -185,19 +201,39 @@ namespace DevTools
             switch (destinationEntity)
             {
                 case "player":
-                    newLocation = playerInfoProvider.GetPlayerLocation(); 
+                    newLocation = playerInfoProvider.GetPlayerLocation();
                     break;
 
                 case "murderer":
-                    newLocation = murdererInfoProvider.GetMurdererLocation(); 
+                    newLocation = murdererInfoProvider.GetMurdererLocation();
                     break;
 
                 case "victim":
-                    newLocation = victimInfoHelper.GetVictimLocation(); 
+                    newLocation = victimInfoHelper.GetVictimLocation();
                     break;
 
+                case "poster":
+                    newLocation = CasePanelController.Instance.activeCase.job.poster.transform.position;
+                    break;
+
+                case "purp":
+                    newLocation = CasePanelController.Instance.activeCase.job.purp.transform.position;
+                    break;
+
+                case "stored":
+                    if (storedHuman != null)
+                    {
+                        newLocation = storedHuman.transform.position;
+                        break;
+                    }
+                    else
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("No current stored citizen!", 2, true);
+                        return;
+                    }
+
                 default:
-                    Lib.GameMessage.ShowPlayerSpeech("Invalid destination. Use 'player', 'murderer', 'victim'.", 2, true);
+                    Lib.GameMessage.ShowPlayerSpeech("Invalid destination. Use 'player', 'murderer', 'victim', 'poster' 'purp', or 'stored'.", 2, true);
                     return;
             }
 
@@ -219,6 +255,25 @@ namespace DevTools
                     Lib.GameMessage.ShowPlayerSpeech("Teleported victim to new location.", 2, true);
                     break;
 
+                case "poster":
+                    CasePanelController.Instance.activeCase.job.poster.transform.position = newLocation;
+                    break;
+
+                case "purp":
+                    CasePanelController.Instance.activeCase.job.purp.transform.position = newLocation;
+                    break;
+
+                case "stored":
+                    if (storedHuman != null)
+                    {
+                        storedHuman.transform.position = newLocation;
+                    }
+                    else
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("No current stored citizen!", 2, true);
+                    }
+                    break;
+
                 case "all":
                     foreach (Citizen citizen in CityData.Instance.citizenDirectory)
                     {
@@ -228,11 +283,12 @@ namespace DevTools
                     break;
 
                 default:
-                    Lib.GameMessage.ShowPlayerSpeech("Invalid source. Use 'player' or 'murderer'  or 'all'.", 2, true);
+                    Lib.GameMessage.ShowPlayerSpeech("Invalid source. Use 'player' or 'murderer', 'poster', 'purp', 'all' or 'stored'.", 2, true);
                     break;
             }
         }
 
+        [Command("/poison")]
         private static void PoisonEntityCommand(string[] args)
         {
             if (args.Length != 2)
@@ -242,7 +298,8 @@ namespace DevTools
             }
 
             string sourceEntity = args[0].ToLower();
-            if (!float.TryParse(args[1], out float amount)) {
+            if (!float.TryParse(args[1], out float amount))
+            {
                 Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /poison <entity> <amount>.", 2, true);
 
             }
@@ -261,6 +318,17 @@ namespace DevTools
                     victimInfoHelper.AddPoisoned(amount, Player.Instance);
                     break;
 
+                case "stored":
+                    if (storedHuman != null)
+                    {
+                        storedHuman.AddPoisoned(amount, Player.Instance);
+                    }
+                    else
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("No current stored citizen!", 2, true);
+                    }
+                    break;
+
                 case "all":
                     foreach (Citizen citizen in CityData.Instance.citizenDirectory)
                     {
@@ -274,6 +342,7 @@ namespace DevTools
             }
         }
 
+        [Command("/kill")]
         private static void KillEntityCommand(string[] args)
         {
             if (args.Length != 1)
@@ -298,22 +367,104 @@ namespace DevTools
                     victimInfoHelper.KillVictim();
                     break;
 
+                case "poster":
+                    CasePanelController.Instance.activeCase.job.poster.RecieveDamage(99999f, murderController.currentMurderer, Vector2.zero, Vector2.zero, null, null, SpatterSimulation.EraseMode.useDespawnTime, true, false, 0f, 1f, true, true, 1f);
+                    break;
+
+                case "purp":
+                    CasePanelController.Instance.activeCase.job.purp.RecieveDamage(99999f, murderController.currentMurderer, Vector2.zero, Vector2.zero, null, null, SpatterSimulation.EraseMode.useDespawnTime, true, false, 0f, 1f, true, true, 1f);
+                    break;
+
+                case "stored":
+                    if (storedHuman != null)
+                    {
+                        storedHuman.RecieveDamage(99999f, Player.Instance, Vector2.zero, Vector2.zero, null, null, SpatterSimulation.EraseMode.useDespawnTime, true, false, 0f, 1f, false, true, 1f);
+                        storedHuman.isDead = true;
+                    }
+                    else
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("No current stored citizen!", 2, true);
+                    }
+                    break;
+
                 default:
-                    Lib.GameMessage.ShowPlayerSpeech("Invalid entity. Use 'player', 'murderer' or 'victim'.", 2, true);
+                    Lib.GameMessage.ShowPlayerSpeech("Invalid entity. Use 'player', 'murderer', 'victim', 'poster or 'purp'.", 2, true);
                     return;
             }
         }
 
+        [Command("/ko")]
+        private static void KOEntityCommand(string[] args)
+        {
+            if (args.Length != 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /ko <entity>", 2, true);
+                return;
+            }
+
+            string sourceEntity = args[0].ToLower();
+
+            switch (sourceEntity)
+            {
+                case "player":
+                    player.TriggerPlayerKO(Vector3.zero, 0, false);
+                    break;
+
+                case "murderer":
+                    murdererInfoProvider.KOMurderer();
+                    break;
+
+                case "victim":
+                    victimInfoHelper.KOVictim();
+                    break;
+
+                case "poster":
+                    CasePanelController.Instance.activeCase.job.poster.RecieveDamage(99999f, murderController.currentMurderer, Vector2.zero, Vector2.zero, null, null, SpatterSimulation.EraseMode.useDespawnTime, true, false, 0f, 1f, false, true, 1f);
+                    break;
+
+                case "purp":
+                    CasePanelController.Instance.activeCase.job.purp.RecieveDamage(99999f, murderController.currentMurderer, Vector2.zero, Vector2.zero, null, null, SpatterSimulation.EraseMode.useDespawnTime, true, false, 0f, 1f, false, true, 1f);
+                    break;
+
+                case "stored":
+                    if (storedHuman != null)
+                    {
+                        storedHuman.RecieveDamage(99999f, murderController.currentMurderer, Vector2.zero, Vector2.zero, null, null, SpatterSimulation.EraseMode.useDespawnTime, true, false, 0f, 1f, false, true, 1f);
+                    }
+                    else
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("No current stored citizen!", 2, true);
+                    }
+                    break;
+
+                default:
+                    Lib.GameMessage.ShowPlayerSpeech("Invalid entity. Use 'player', 'murderer', 'victim', 'poster or 'purp'", 2, true);
+                    return;
+            }
+        }
+
+        [Command("/mName")]
         private static void GetMurdererFullName(string[] args)
         {
             String name = murdererInfoProvider.GetMurdererFullName().ToString();
             Lib.GameMessage.ShowPlayerSpeech("Full name of murderer: " + name, 2, true);
         }
+
+        [Command("/vName")]
         private static void GetVictimFullName(string[] args)
         {
             String name = victimInfoHelper.GetVictimFullName().ToString();
             Lib.GameMessage.ShowPlayerSpeech("Full name of victim: " + name, 2, true);
         }
+
+        [Command("/sName")]
+        private static void GetStoredFullName(string[] args)
+        {
+            String name = storedHumanInfoProvider.GetStoredFullName().ToString();
+            Lib.GameMessage.ShowPlayerSpeech("Full name of citizen: " + name, 2, true);
+        }
+
+        [Command("/god")]
         private static void GodCommand(string[] args)
         {
             if (!godmode)
@@ -331,9 +482,18 @@ namespace DevTools
                 godmode = false;
             }
         }
+
+        [Command("/resetHealth")]
+        private static void ResetHealthCommand(string[] args)
+        {
+            Player.Instance.ResetHealthToMaximum();
+            Lib.GameMessage.ShowPlayerSpeech("Health reset.", 2, true);
+        }
+
+        [Command("/giveMoney")]
         private static void GiveMoneyCommand(string[] args)
         {
-            if (args.Length != 1) 
+            if (args.Length != 1)
             {
                 Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /givemoney <amount>", 2, true);
                 return;
@@ -351,16 +511,20 @@ namespace DevTools
             Lib.GameMessage.ShowPlayerSpeech($"Given {amount} crows.", 2, true);
         }
 
+        [Command("/currentNode")]
         private static void CurrentNodeCommand(string[] args)
         {
             Lib.GameMessage.ShowPlayerSpeech($"Current Node: {playerInfoProvider.GetPlayerNode()}", 2, true);
         }
 
+        [Command("/pos")]
         private static void PosCommand(string[] args)
         {
             Vector3 pos = playerInfoProvider.GetPlayerLocation();
             Lib.GameMessage.ShowPlayerSpeech($"Current Position: {pos}", 2, true);
         }
+
+        [Command("/killAll")]
         private static void KillAllCommand(string[] args)
         {
             foreach (Citizen citizen in CityData.Instance.citizenDirectory)
@@ -371,6 +535,17 @@ namespace DevTools
             Lib.GameMessage.ShowPlayerSpeech($"Killed everyone.", 2, true);
         }
 
+        [Command("/koAll")]
+        private static void KOAllCommand(string[] args)
+        {
+            foreach (Citizen citizen in CityData.Instance.citizenDirectory)
+            {
+                citizen.RecieveDamage(99999f, Player.Instance, Vector2.zero, Vector2.zero, null, null, SpatterSimulation.EraseMode.useDespawnTime, true, false, 0f, 1f, false, true, 1f);
+            }
+            Lib.GameMessage.ShowPlayerSpeech($"KO'd everyone.", 2, true);
+        }
+
+        [Command("/passcode")]
         private static void GetEntityPasscodeCommand(string[] args)
         {
             if (args.Length != 1)
@@ -395,11 +570,32 @@ namespace DevTools
                     Lib.GameMessage.ShowPlayerSpeech("Victim passcode is: " + victimInfoHelper.GetPassword().ToString(), 2, true);
                     break;
 
+                case "poster":
+                    Lib.GameMessage.ShowPlayerSpeech("Poster passcode is: " + purpInfoProvider.GetPassword().ToString(), 2, true);
+                    break;
+
+                case "purp":
+                    Lib.GameMessage.ShowPlayerSpeech("Purp passcode is: " + purpInfoProvider.GetPassword().ToString(), 2, true);
+                    break;
+
+                case "stored":
+                    if (storedHuman != null)
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("Stored citizen passcode is: " + storedHumanInfoProvider.GetPassword().ToString(), 2, true);
+                    }
+                    else
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("No current stored citizen!", 2, true);
+                    }
+                    break;
+
                 default:
-                    Lib.GameMessage.ShowPlayerSpeech("Invalid entity. Use 'player', 'murderer' or 'victim'.", 2, true);
+                    Lib.GameMessage.ShowPlayerSpeech("Invalid entity. Use 'player', 'murderer', 'victim', 'poster' or 'purp'.", 2, true);
                     return;
             }
         }
+
+        [Command("/setPasscode")]
         private static void SetPasscodeCommand(string[] args)
         {
             if (args.Length != 1 || string.IsNullOrEmpty(args[0]))
@@ -420,7 +616,9 @@ namespace DevTools
 
             Lib.GameMessage.ShowPlayerSpeech($"Passcode set to {passcode}.", 2, true);
         }
-        private static void allowedEverywhereCommand(string[] args)
+
+        [Command("/allowEverywhere")]
+        private static void AllowedEverywhereCommand(string[] args)
         {
             CityData cityData = CityData.Instance;
             foreach (var newLoc in cityData.gameLocationDirectory)
@@ -429,18 +627,503 @@ namespace DevTools
             }
             Lib.GameMessage.ShowPlayerSpeech("Authorising player everywhere.", 2, true);
         }
-        private static void disableBadEffectsCommand(string[] args)
+
+        [Command("/disableBadEffects")]
+        private static void DisableBadEffectsCommand(string[] args)
         {
             PlayerPatch.resetNegativeEffects = true;
+            Lib.GameMessage.ShowPlayerSpeech("Negative effects disabled.", 2, true);
         }
-        private static void ResetHealthCommand(string[] args)
-        {
-            Player.Instance.ResetHealthToMaximum();
-        }
+
+        [Command("/help")]
         private static void HelpCommand(string[] args)
         {
-            Application.OpenURL("https://www.Google.com");
+            Application.OpenURL("https://github.com/ShaneeexD/DevTools-SOD/wiki");
+        }
 
+        [Command("/noclip")]
+        private static void NoClipCommand(string[] args)
+        {
+            if (!noclip)
+            {
+                noclip = true;
+                Game.Instance.SetFreeCamMode(true);
+                Lib.GameMessage.ShowPlayerSpeech($"Noclip enabled.", 2, true);
+
+            }
+            else
+            {
+                noclip = false;
+                Game.Instance.SetFreeCamMode(false);
+                Lib.GameMessage.ShowPlayerSpeech($"Noclip disabled.", 2, true);
+            }
+        }
+
+        [Command("/compSideJob")]
+        private static void CompleteSideJobCommand(string[] args)
+        {
+            CasePanelController.Instance.activeCase.job.Complete();
+        }
+
+        [Command("/giveSocialCredit")]
+        private static void GiveSocialCreditCommand(string[] args)
+        {
+            if (args.Length != 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /giveSocialCredit <type>", 2, true);
+                return;
+            }
+
+            string type = args[0].ToLower();
+
+
+            switch (type)
+            {
+                case "murdercase":
+                    GameplayController.Instance.AddSocialCredit(GameplayControls.Instance.socialCreditForMurders, true, "cheat");
+                    break;
+
+                case "sidejob":
+                    GameplayController.Instance.AddSocialCredit(GameplayControls.Instance.socialCreditForSideJobs, true, "cheat");
+
+                    break;
+
+                case "lostandfound":
+                    GameplayController.Instance.AddSocialCredit(GameplayControls.Instance.socialCreditForLostAndFound, true, "cheat");
+                    break;
+
+                default:
+                    Lib.GameMessage.ShowPlayerSpeech("Unknown social credit type. Use: murdercase, sidejob, lostandfound", 2, true);
+                    return;
+            }
+
+            Lib.GameMessage.ShowPlayerSpeech($"Given social credit for {type}.", 2, true);
+        }
+
+        [Command("/sideJobDetails")]
+        private static void SideJobDetailsCommand(string[] args)
+        {
+            if (CasePanelController.Instance.activeCase != null)
+            {
+                string caseId = CasePanelController.Instance.activeCase.id.ToString();
+                string purp = CasePanelController.Instance.activeCase.job.purp.name.ToString();
+                string poster = CasePanelController.Instance.activeCase.job.poster.name.ToString();
+
+                if (caseId != null)
+                {
+                    Lib.GameMessage.ShowPlayerSpeech("Case ID is: " + caseId, 2, true);
+                }
+                if (poster != null)
+                {
+                    Lib.GameMessage.ShowPlayerSpeech("Poster is: " + poster, 2, true);
+                }
+                if (purp != null)
+                {
+                    Lib.GameMessage.ShowPlayerSpeech("Purp is: " + purp, 2, true);
+                }
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech("No active side job!", 2, true);
+            }
+        }
+
+        [Command("/removeAttackers")]
+        private static void RemoveAttackers(string[] args)
+        {
+            foreach (Citizen citizen in CityData.Instance.citizenDirectory)
+            {
+                citizen.ai.EndAttack();
+                citizen.ai.attackActive = false;
+                citizen.ai.CancelCombat();
+                Player.Instance.RemovePersuedBy(citizen);
+            }
+        }
+
+        [Command("/itemTest")]
+        private static void ItemTestCommand(string[] args)
+        {
+            if (storedItem != null)
+            {
+                player = Player.Instance;
+                storedItem.IsSafeToDelete(true);
+                //storedItem.furnitureParent.Delete(true, FurnitureClusterLocation.RemoveInteractablesOption.remove);
+                GameObject furniture = storedItem.furnitureParent.spawnedObject.gameObject; //Parent
+                GameObject furnitureItem = storedItem.spawnedObject.gameObject; //Item
+                SpawnFurnitureAtLookPosition(furniture);
+                SpawnFurnitureAtLookPosition(furnitureItem);
+                //Lib.GameMessage.ShowPlayerSpeech("Deleting Object!", 2, true);
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech("No item stored!", 2, true);
+            }
+        }
+
+        private static void SpawnFurnitureAtLookPosition(GameObject furniturePrefab)
+        {
+            RaycastHit raycastHit = InteractionController.Instance.playerCurrentRaycastHit;
+
+            if (raycastHit.collider != null)
+            {
+                Vector3 hitPoint = raycastHit.point;
+
+                // Instantiate the furniture at the hit point
+                GameObject.Instantiate(furniturePrefab, hitPoint, Quaternion.identity);
+
+                // Optionally, align the furniture with the surface normal
+                // Quaternion rotation = Quaternion.LookRotation(raycastHit.normal);
+                // Instantiate(furniturePrefab, hitPoint, rotation);
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech("No valid raycast hit.", 2, true);
+            }
+        }
+
+        [Command("/job")]
+        private static void GetEntityJobCommand(string[] args)
+        {
+            if (args.Length != 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /job <entity>", 2, true);
+                return;
+            }
+
+            string entity = args[0].ToLower();
+
+            switch (entity)
+            {
+                case "murderer":
+                    murdererInfoProvider.GetJob();
+                    Lib.GameMessage.ShowPlayerSpeech(murdererInfoProvider.GetJob(), 2, true);
+
+                    break;
+
+                case "victim":
+                    victimInfoHelper.GetJob();
+                    Lib.GameMessage.ShowPlayerSpeech(victimInfoHelper.GetJob(), 2, true);
+
+                    break;
+
+                case "poster":
+                    posterInfoProvider.GetJob();
+                    Lib.GameMessage.ShowPlayerSpeech(posterInfoProvider.GetJob(), 2, true);
+
+                    break;
+
+                case "purp":
+                    purpInfoProvider.GetJob();
+                    Lib.GameMessage.ShowPlayerSpeech(purpInfoProvider.GetJob(), 2, true);
+                    break;
+
+                case "stored":
+                    if (storedHuman != null)
+                    {
+                        storedHumanInfoProvider.GetJob();
+                        Lib.GameMessage.ShowPlayerSpeech(storedHumanInfoProvider.GetJob(), 2, true);
+                    }
+                    else
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("No current stored citizen!", 2, true);
+                    }
+                    break;
+
+
+                default:
+                    Lib.GameMessage.ShowPlayerSpeech("Invalid entity. Use 'murderer', 'victim', 'Poster', 'Purp' or 'Stored'.", 2, true);
+                    return;
+            }
+        }
+
+        [Command("/testStoredScale")]
+        private static void TestStored(string[] args)
+        {
+            if (float.TryParse(args[0], out float scale))
+            {
+                storedHuman.gameObject.transform.localScale = new Vector3(scale, scale, scale);
+            }
+        }
+
+        [Command("/testStoredSpawn")]
+        private static void TestStoredClone(string[] args)
+        {
+            if (storedHuman != null)
+            {
+                GameObject oldHuman = storedHuman.gameObject;
+
+                GameObject.Instantiate(oldHuman, new Vector3(1, 1, 1), Quaternion.identity);
+
+                Lib.GameMessage.ShowPlayerSpeech("Spawned Citizen!", 2, true);
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech("No current stored citizen!", 2, true);
+            }
+        }
+
+        [Command("/createTP")]
+        private static void SetTeleport(string[] args)
+        {
+            if (args.Length < 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Please provide a name for the teleport point.", 2, true);
+                return;
+            }
+
+            string teleportName = args[0];
+            Vector3 pos = playerInfoProvider.GetPlayerLocation();
+
+            if (teleportPoints.ContainsKey(teleportName))
+            {
+                Lib.GameMessage.ShowPlayerSpeech($"Teleport point '{teleportName}' updated to new position: {pos}", 2, true);
+                teleportPoints[teleportName] = pos;
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech($"Teleport point '{teleportName}' created at position: {pos}", 2, true);
+                teleportPoints.Add(teleportName, pos);
+            }
+        }
+
+        [Command("/tpc")]
+        private static void TeleportToPoint(string[] args)
+        {
+            if (args.Length < 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Please provide the name of the teleport point.", 2, true);
+                return;
+            }
+
+            string teleportName = args[0];
+
+            if (teleportPoints.TryGetValue(teleportName, out Vector3 targetPosition))
+            {
+                playerInfoProvider.SetPlayerLocation(targetPosition);
+                Lib.GameMessage.ShowPlayerSpeech($"Teleported to '{teleportName}' at position: {targetPosition}", 2, true);
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech($"Teleport point '{teleportName}' does not exist.", 2, true);
+            }
+        }
+
+        [Command("/showTPList")]
+        private static void ShowTeleportPoints(string[] args)
+        {
+            if (teleportPoints.Count == 0)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("No teleport points have been set.", 2, true);
+                return;
+            }
+
+            System.Text.StringBuilder pointsList = new System.Text.StringBuilder("Teleport Points:\n");
+            foreach (var point in teleportPoints)
+            {
+                pointsList.AppendLine($"{point.Key}: {point.Value}");
+            }
+            Lib.GameMessage.ShowPlayerSpeech(pointsList.ToString(), 5, true);
+        }
+
+        [Command("/deleteTP")]
+        private static void DeleteTeleportPoint(string[] args)
+        {
+            if (args.Length < 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Please provide the name of the teleport point to delete.", 2, true);
+                return;
+            }
+
+            string teleportName = args[0];
+
+            if (teleportPoints.Remove(teleportName))
+            {
+                Lib.GameMessage.ShowPlayerSpeech($"Teleport point '{teleportName}' has been deleted.", 2, true);
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech($"Teleport point '{teleportName}' does not exist.", 2, true);
+            }
+        }
+
+        [Command("/tpp")]
+        private static void TeleportPresetCommand(string[] args)
+        {
+            if (args.Length < 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /tpp <presetname>", 2, true);
+                return;
+            }
+
+            NewNode newLocation = null;
+
+            switch (args[0].ToLower())
+            {
+                case "home":
+                    if (player.home != null) newLocation = player.home.GetDestinationNode();
+                    break;
+
+                case "mwork":
+                    if (murderController.currentMurderer?.workPosition?.node != null)
+                        newLocation = murderController.currentMurderer.workPosition.node;
+                    break;
+
+                case "mhome":
+                    if (murderController.currentMurderer?.home != null)
+                        newLocation = murderController.currentMurderer.home.GetDestinationNode();
+                    break;
+
+                case "vwork":
+                    if (murderController.currentVictim?.workPosition?.node != null)
+                        newLocation = murderController.currentVictim.workPosition.node;
+                    break;
+
+                case "vhome":
+                    if (murderController.currentVictim?.home != null)
+                        newLocation = murderController.currentVictim.home.GetDestinationNode();
+                    break;
+
+                case "posterwork":
+                    if (CasePanelController.Instance.activeCase?.job?.poster?.workPosition?.node != null)
+                        newLocation = CasePanelController.Instance.activeCase.job.poster.workPosition.node;
+                    break;
+
+                case "posterhome":
+                    if (CasePanelController.Instance.activeCase?.job?.poster?.home != null)
+                        newLocation = CasePanelController.Instance.activeCase.job.poster.home.GetDestinationNode();
+                    break;
+
+                case "purpwork":
+                    if (CasePanelController.Instance.activeCase?.job?.purp?.workPosition?.node != null)
+                        newLocation = CasePanelController.Instance.activeCase.job.purp.workPosition.node;
+                    break;
+
+                case "purphome":
+                    if (CasePanelController.Instance.activeCase?.job?.purp?.home != null)
+                        newLocation = CasePanelController.Instance.activeCase.job.purp.home.GetDestinationNode();
+                    break;
+
+                case "swork":
+                    if (storedHuman?.workPosition?.node != null)
+                        newLocation = storedHuman.workPosition.node;
+                    break;
+
+                case "shome":
+                    if (storedHuman?.home != null)
+                        newLocation = storedHuman.home.GetDestinationNode();
+                    break;
+
+                default:
+                    Lib.GameMessage.ShowPlayerSpeech($"Unknown preset '{args[0]}'. Available presets: home, mwork, mhome, vwork, vhome, posterwork, posterhome, purpwork, purphome, swork, shome.", 2, true);
+                    return;
+            }
+
+            if (newLocation != null)
+            {
+                player.Teleport(newLocation, null);
+                Lib.GameMessage.ShowPlayerSpeech($"Teleported to {args[0]}", 2, true);
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech($"Failed to teleport. The preset '{args[0]}' has no set destination.", 2, true);
+            }
+        }
+
+        [Command("/output")]
+        private static void ExportCommand(string[] args)
+        {
+            if (args.Length < 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /export <murderer|victim|poster|purp|stored>", 2, true);
+                return;
+            }
+
+            string characterType = args[0].ToLower();
+            string output = string.Empty;
+
+            switch (characterType)
+            {
+                case "murderer":
+                    if (murderController.currentMurderer != null)
+                        output = GetCitizenInfo(murderController.currentMurderer);
+                    else
+                        Lib.GameMessage.ShowPlayerSpeech("No murderer data found.", 2, true);
+                    break;
+
+                case "victim":
+                    if (murderController.currentVictim != null)
+                        output = GetCitizenInfo(murderController.currentVictim);
+                    else
+                        Lib.GameMessage.ShowPlayerSpeech("No victim data found.", 2, true);
+                    break;
+
+                case "poster":
+                    if (CasePanelController.Instance.activeCase?.job?.poster != null)
+                        output = GetCitizenInfo(CasePanelController.Instance.activeCase.job.poster);
+                    else
+                        Lib.GameMessage.ShowPlayerSpeech("No poster data found.", 2, true);
+                    break;
+
+                case "purp":
+                    if (CasePanelController.Instance.activeCase?.job?.purp != null)
+                        output = GetCitizenInfo(CasePanelController.Instance.activeCase.job.purp);
+                    else
+                        Lib.GameMessage.ShowPlayerSpeech("No purp data found.", 2, true);
+                    break;
+
+                case "stored":
+                    if (storedHuman != null)
+                        output = GetCitizenInfo(storedHuman);
+                    else
+                        Lib.GameMessage.ShowPlayerSpeech("No stored data found.", 2, true);
+                    break;
+
+                default:
+                    Lib.GameMessage.ShowPlayerSpeech("Unknown character type. Use one of: murderer, victim, poster, purp, stored.", 2, true);
+                    return;
+            }
+
+            if (!string.IsNullOrEmpty(output))
+            {
+                string directoryPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+                string filePath = Path.Combine(directoryPath, $"{characterType}_info.txt");
+
+                try
+                {
+                    File.WriteAllText(filePath, output);
+                    Lib.GameMessage.ShowPlayerSpeech($"Exported {characterType} info to {filePath}", 2, true);
+                }
+                catch (Exception ex)
+                {
+                    Lib.GameMessage.ShowPlayerSpeech($"Error exporting {characterType} info: {ex.Message}", 2, true);
+                }
+            }
+        }
+
+        private static string GetCitizenInfo(Human human)
+        {
+            string name = human.name?.ToString() ?? "null";
+            string age = human.GetAge().ToString() ?? "null";
+            string employer = human.job?.employer?.name?.ToString() ?? "null";
+            string occupation = human.job?.name?.ToString() ?? "null";
+            string address = human.home?.thisAsAddress?.name?.ToString() ?? "null";
+
+            string passcode = human.passcode?.digits != null
+                ? string.Join("", human.passcode.digits.Select(digit => digit.ToString() ?? "null"))
+                : "null";
+
+            string inventoryItems = human.inventory != null
+                ? string.Join(", ", human.inventory.Select(item => item?.GetName()?.ToString() ?? "null"))
+                : "null";
+
+            return $"Name: {name}\n" +
+                   $"Age: {age}\n" +
+                   $"Employer: {employer}\n" +
+                   $"Occupation: {occupation}\n" +
+                   $"Address: {address}\n" +
+                   $"Passcode: {passcode}\n" +
+                   $"Inventory: {inventoryItems}\n";
         }
     }
 }
+
