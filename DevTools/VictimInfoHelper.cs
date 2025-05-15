@@ -46,6 +46,10 @@ namespace DevTools
         {
             murderController.currentVictim.RecieveDamage(99999f, murderController.currentMurderer, Vector2.zero, Vector2.zero, null, null, SpatterSimulation.EraseMode.useDespawnTime, true, false, 0f, 1f, true, true, 1f);
         }
+        public void KOVictim()
+        {
+            murderController.currentVictim.RecieveDamage(99999f, Player.Instance, Vector2.zero, Vector2.zero, null, null, SpatterSimulation.EraseMode.useDespawnTime, true, false, 0f, 1f, false, true, 1f);
+        }
         public string GetPassword()
         {
             MurderController murderController = MurderController.Instance;
@@ -57,6 +61,25 @@ namespace DevTools
             }
             string passcodeString = passcodeBuilder.ToString();
             return passcodeString;
+        }
+        public string GetJob()
+        {
+            string noJob = "Citizen is jobless.";
+
+            if (murderController.currentVictim.job.employer != null)
+            {
+                string employer = murderController.currentVictim.job.employer.name.ToString();
+                string jobname = murderController.currentVictim.job.name.ToString();
+                string salary = murderController.currentVictim.job.salaryString.ToString();
+
+                string jobDec = "Employer: " + employer + Environment.NewLine + "Job: " + jobname + Environment.NewLine + "Salary: " + salary;
+                
+                return jobDec;
+            }
+            else
+            {
+                return noJob;
+            }
         }
     }
 }

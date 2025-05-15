@@ -8,6 +8,8 @@ using UnityStandardAssets.Characters.FirstPerson;
 using static Il2CppMono.Security.X509.X520;
 using System.IO;
 using SOD.Common.Extensions;
+using Il2CppSystem.Linq.Expressions.Interpreter;
+using UnityEngine.UIElements;
 
 namespace DevTools
 {
@@ -517,6 +519,12 @@ namespace DevTools
             Lib.GameMessage.ShowPlayerSpeech($"Current Node: {playerInfoProvider.GetPlayerNode()}", 2, true);
         }
 
+        [Command("/currentNodeCoord")]
+        private static void CurrentNodeCoordCommand(string[] args)
+        {
+            Lib.GameMessage.ShowPlayerSpeech($"Current Node: {playerInfoProvider.GetPlayerNodeCoord()}", 2, true);
+        }
+
         [Command("/pos")]
         private static void PosCommand(string[] args)
         {
@@ -626,6 +634,134 @@ namespace DevTools
                 Player.Instance.AddLocationOfAuthorty(newLoc);
             }
             Lib.GameMessage.ShowPlayerSpeech("Authorising player everywhere.", 2, true);
+        }
+
+        [Command("/room")]
+        private static void GetCurrentRoomNameAndPreset(string[] args)
+        {
+            NewRoom newRoom = Player.Instance.currentRoom;
+            string roomName = newRoom.name != null ? newRoom.name : "unnamed";
+            string roomPreset = newRoom.preset != null ? newRoom.preset.name : "no preset";
+            string buildingName = newRoom.building != null ? newRoom.building.name : "unknown building";
+            string floorName = newRoom.floor != null ? newRoom.floor.name : "unknown floor";
+            // Get the actual building name from GameLocation if possible
+            string actualBuildingName = "unknown";
+            string initialBuildingName = "unknown";
+            if (newRoom.building != null)
+            {
+                // Try to find the GameLocation that corresponds to this building
+                foreach (var location in CityData.Instance.gameLocationDirectory)
+                {
+                    if (location != null && location.thisAsAddress != null && 
+                        location.thisAsAddress.building.buildingID == newRoom.building.buildingID)
+                    {                
+                        actualBuildingName = location.thisAsAddress.name;
+                        initialBuildingName = location.name;
+                        break;
+                    }
+                }
+            }
+    
+            Lib.GameMessage.ShowPlayerSpeech($"Room: {roomName}\nPreset: {roomPreset}\nFloor: {floorName}", 5, true);
+        }
+
+        [Command("/furni")]
+        private static void ListFurnitureInRoom(string[] args)
+        {
+            NewRoom currentRoom = Player.Instance.currentRoom;
+            if (currentRoom == null)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Could not determine current room.", 3, true);
+                return;
+            }
+
+            if (currentRoom.individualFurniture == null || currentRoom.individualFurniture.Count == 0)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("No furniture found in this room.", 3, true);
+                return;
+            }
+
+            // Collect unique furniture preset names
+            HashSet<string> uniqueFurniturePresets = new HashSet<string>();
+            foreach (var furniture in currentRoom.individualFurniture)
+            {
+                if (furniture != null && furniture.furniture != null)
+                {
+                    uniqueFurniturePresets.Add(furniture.furniture.name);
+                }
+            }
+
+            // Create a message with all furniture preset names
+            string furnitureList = string.Join("\n", uniqueFurniturePresets.OrderBy(name => name));
+
+            // Create a JSON-formatted version for clipboard
+            string jsonFormatted = string.Join("\", \"", uniqueFurniturePresets.OrderBy(name => name));
+            if (!string.IsNullOrEmpty(jsonFormatted))
+            {
+                jsonFormatted = "[\"" + jsonFormatted + "\"]";
+            }
+            else
+            {
+                jsonFormatted = "[]";
+            }
+
+            // Save to a file that can be easily accessed
+            try
+            {
+                string directoryPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+                string filePath = Path.Combine(directoryPath, "furniture_list.json");
+                File.WriteAllText(filePath, jsonFormatted);
+                Lib.GameMessage.ShowPlayerSpeech($"Furniture in {currentRoom.name} saved to: {filePath}", 5, true);
+            }
+            catch (Exception ex)
+            {
+                // If file write fails, just show the list
+                Lib.GameMessage.ShowPlayerSpeech($"Furniture in {currentRoom.name} failed to save JSON: {ex.Message}", 5, true);
+            }
+        }
+
+        [Command("/allfloors")]
+        private static void ListAllFloors(string[] args)
+        {
+            // Get all floor presets from the game
+            HashSet<string> allFloorPresets = new HashSet<string>();
+            
+            // Access the floor directory from CityData
+            if (CityData.Instance != null && CityData.Instance.floorDirectory != null)
+            {
+                foreach (var floor in CityData.Instance.floorDirectory)
+                {
+                    if (floor != null && !string.IsNullOrEmpty(floor.name))
+                    {
+                        allFloorPresets.Add(floor.name);
+                    }
+                }
+            }
+
+            // Create a JSON-formatted version
+            string jsonFormatted = string.Join("\", \"", allFloorPresets.OrderBy(name => name));
+            if (!string.IsNullOrEmpty(jsonFormatted))
+            {
+                jsonFormatted = "[\"" + jsonFormatted + "\"]";
+            }
+            else
+            {
+                jsonFormatted = "[]";
+            }
+
+            // Save to a file that can be easily accessed
+            try
+            {
+                string directoryPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+                string filePath = Path.Combine(directoryPath, "all_floors_list.json");
+                File.WriteAllText(filePath, jsonFormatted);
+                Lib.GameMessage.ShowPlayerSpeech($"All floor presets ({allFloorPresets.Count}) saved to: {filePath}", 5, true);
+            }
+            catch (Exception ex)
+            {
+                // If file write fails, just show a message
+                Lib.GameMessage.ShowPlayerSpeech($"Failed to save floor presets to JSON: {ex.Message}", 5, true);
+            }
         }
 
         [Command("/disableBadEffects")]
@@ -1027,6 +1163,30 @@ namespace DevTools
             {
                 Lib.GameMessage.ShowPlayerSpeech($"Failed to teleport. The preset '{args[0]}' has no set destination.", 2, true);
             }
+        }
+
+        [Command("/tpn")]
+        private static void TeleportNodeCommand(string[] args)
+        {
+            if (args.Length < 3)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /tpn <x> <y> <z>", 2, true);
+                return;
+            }
+
+            if (!int.TryParse(args[0], out int x) ||
+                !int.TryParse(args[1], out int y) ||
+                !int.TryParse(args[2], out int z))
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Invalid coordinates. Please provide valid numbers.", 2, true);
+                return;
+            }
+
+            Vector3Int newLocation = new Vector3Int(x, y, z);
+
+            playerInfoProvider.SetPlayerNode(newLocation);
+
+            Lib.GameMessage.ShowPlayerSpeech($"Teleported to {newLocation}", 2, true);
         }
 
         [Command("/output")]

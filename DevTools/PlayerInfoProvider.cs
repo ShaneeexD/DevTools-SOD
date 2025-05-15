@@ -22,10 +22,20 @@ public class PlayerInfoProvider
     {
         playerObject.transform.position = loc;
     }
+    public void SetPlayerNode(Vector3Int loc)
+    {
+        Player player = Player.Instance;
+        player.currentNodeCoord = loc;
+    }
     public NewNode GetPlayerNode()
     {
         Player player = Player.Instance;
         return player.currentNode;
+    }
+    public Vector3 GetPlayerNodeCoord()
+    {
+        Player player = Player.Instance;
+        return player.currentNodeCoord;
     }
     public bool GetIsRunning()
     {
@@ -191,5 +201,267 @@ public class PlayerInfoProvider
     {
         Player player = Player.Instance;
         return player.apartmentsOwned;
+    }
+
+    public float GetDrunk()
+    {
+        Player player = Player.Instance;
+        return player.drunk;
+    }
+
+    public void SetDrunk(float amount)
+    {
+        Player player = Player.Instance;
+        player.drunk = amount;
+    }
+
+    public float GetBruised()
+    {
+        Player player = Player.Instance;
+        return player.bruised;
+    }
+
+    public void SetBruised(float amount)
+    {
+        Player player = Player.Instance;
+        player.bruised = amount;
+    }
+
+    public float GetPoisoned()
+    {
+        Player player = Player.Instance;
+        return player.poisoned;
+    }
+
+    public void SetPoisoned(float amount)
+    {
+        Player player = Player.Instance;
+        player.poisoned = amount;
+    }
+    public bool GetIsDead()
+    {
+        Player player = Player.Instance;
+        return player.isDead;
+    }
+
+    public void AddHealth(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddHealth(amount);
+    }
+
+    public void EndAutoTravel()
+    {
+        Player player = Player.Instance;
+        player.EndAutoTravel();
+    }
+    public void AddSick(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddSick(amount);
+    }
+    
+    public void AddHeadache(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddHeadache(amount);
+    }
+
+    public void AddWet(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddWet(amount);
+    }
+
+    public void AddBrokenLeg(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddBrokenLeg(amount);
+    }
+
+    public void AddNumb(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddNumb(amount);
+    }
+
+    public void KillPlayer()
+    {
+        Player player = Player.Instance;
+        player.KillPlayer();
+    }
+
+    public void Trip(float damage, bool forwards = false, bool playSound = true)
+    {
+        Player player = Player.Instance;
+        player.Trip(damage, forwards, playSound);
+    }
+
+    public void SetMaxSpeed(float walkSpeed, float runSpeed)
+    {
+        Player player = Player.Instance;
+        player.SetMaxSpeed(walkSpeed, runSpeed);
+    }
+
+    public void EnablePlayerMovement(bool val, bool updateCulling = true)
+    {
+        Player player = Player.Instance;
+        player.EnablePlayerMovement(val, updateCulling);
+    }
+
+    public void EnablePlayerMouseLook(bool val, bool forceHideMouseOnDisable = false)
+    {
+        Player player = Player.Instance;
+        player.EnablePlayerMouseLook(val, forceHideMouseOnDisable);
+    }
+
+    public void EnableCharacterController(bool val)
+    {
+        Player player = Player.Instance;
+        player.EnableCharacterController(val);
+    }
+
+    public void SetLockpickingState(bool val)
+    {
+        Player player = Player.Instance;
+        player.SetLockpickingState(val);
+    }
+
+    public void AddNourishment(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddNourishment(amount);
+    }
+
+    public void AddHydration(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddHydration(amount);
+    }
+
+    public void AddEnergy(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddEnergy(amount);
+    }
+
+    public void AddHygiene(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddHygiene(amount);
+    }
+
+    public void AddHeat(float amount)
+    {
+        Player player = Player.Instance;
+        player.AddHeat(amount); 
+    }
+
+    public float GetPlayerHeightNormal()
+    {
+        Player player = Player.Instance;
+        return player.GetPlayerHeightNormal();
+    }
+
+    public float GetPlayerHeightCrouched()
+    {
+        Player player = Player.Instance;
+        return player.GetPlayerHeightCrouched();
+    }
+
+    public void SetPlayerHeight(float height, bool stayOnFloorPlane = true)
+    {
+        Player player = Player.Instance;
+        player.SetPlayerHeight(height, stayOnFloorPlane);
+    }
+
+    public void SetCameraHeight(float height)
+    {
+        Player player = Player.Instance;
+        player.SetCameraHeight(height);
+    }
+
+    public float GetNourishment() 
+    {
+        Player player = Player.Instance;
+        return player.nourishment;
+    }
+
+    public float GetHydration()
+    {
+        Player player = Player.Instance;
+        return player.hydration;
+    }
+
+    public float GetEnergy()
+    {
+        Player player = Player.Instance;
+        return player.energy;
+    }
+
+    public float GetAlertness()
+    {
+        Player player = Player.Instance;
+        return player.alertness;
+    }
+
+    public float GetHygiene()
+    {
+        Player player = Player.Instance;
+        return player.hygiene;
+    }
+
+    public float GetHeat()
+    {
+        Player player = Player.Instance;
+        return player.heat;
+    }
+
+    public float GetHeadache()
+    {
+        Player player = Player.Instance;
+        return player.headache;
+    }
+
+    public float GetWet()
+    {
+        Player player = Player.Instance;
+        return player.wet;
+    }
+
+    public float GetBrokenLeg()
+    {
+        Player player = Player.Instance;
+        return player.brokenLeg;
+    }
+
+    public float GetNumb()
+    {
+        Player player = Player.Instance;
+        return player.numb;
+    }
+
+    public float GetSick()
+    {
+        Player player = Player.Instance;
+        return player.sick;
+    }
+
+    public bool GetIsLockpicking()
+    {
+        Player player = Player.Instance;
+        return player.isLockpicking;
+    }
+
+    public bool GetIsHiding()
+    {
+        Player player = Player.Instance;
+        return player.isHiding;
+    }
+
+    public bool GetIsCrouched()
+    {
+        Player player = Player.Instance;
+        return player.isCrouched;
     }
 }

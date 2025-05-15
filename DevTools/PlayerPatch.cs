@@ -10,6 +10,7 @@ using System;
 using UnityStandardAssets.Characters.FirstPerson;
 using UnityEngine.EventSystems;
 using Rewired.Demos;
+using SOD.Common;
 
 namespace DevTools
 {
@@ -34,19 +35,46 @@ namespace DevTools
         {
             if (Input.GetKeyInt(BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.Slash))
             {
-                if (!isInputActive)
+                if (!isInputActive && MainMenuController.Instance.mainMenuActive == false && __instance.isInBed == false)
                 {
                     CommandUI.OpenDialogInputBox();
                     isInputActive = true;
                 }
             }
 
+            if (Input.GetKeyInt(BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.Mouse3))
+            {
+                if (InteractionController.Instance.currentLookingAtInteractable != null)
+                {
+                    if (InteractionController.Instance.currentLookingAtInteractable.interactable.isActor as Human)
+                    {
+                        CommandManager.storedHuman = InteractionController.Instance.currentLookingAtInteractable.interactable.isActor as Human;
+
+                        if (CommandManager.storedHuman != null)
+                        {
+                             Lib.GameMessage.ShowPlayerSpeech("Stored citizen: " + CommandManager.storedHuman.GetCitizenName().ToString(), 2, true);
+
+                             StoredHumanInfoProvider.human = CommandManager.storedHuman;
+                        }
+                    }
+                    else
+                    {
+                        CommandManager.storedItem = InteractionController.Instance.currentLookingAtInteractable.interactable;
+
+                        Lib.GameMessage.ShowPlayerSpeech("Stored item: " + InteractionController.Instance.currentLookingAtInteractable.interactable.name.ToString(), 2, true);
+                    }
+                }
+            }
+
+            if (MainMenuController.Instance.mainMenuActive == true && isInputActive == true)
+            {
+                CommandUI.CloseDialogInputBox();
+            }
+
             if (isInputActive)
             {        
                 Player.Instance.EnablePlayerMouseLook(false, false);
                 Player.Instance.EnableCharacterController(false);
-                inputController = new InputController();
-                inputController.enableInput = false;
                 sessionData = SessionData.Instance;
                 sessionData.PauseGame(false, false, false);
 
@@ -58,15 +86,6 @@ namespace DevTools
                 {
                     CommandUI.CloseDialogInputBox();
                 }
-            }
-
-            if (Input.GetKeyInt(BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.V) && !isInputActive)
-            {
-                game.SetFreeCamMode(true);
-            }
-            else
-            {
-                game.SetFreeCamMode(false);
             }
 
             if(resetNegativeEffects)

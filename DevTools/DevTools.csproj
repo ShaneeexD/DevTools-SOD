@@ -41,6 +41,9 @@
       <HintPath>..\..\..\..\SteamLibrary\steamapps\common\Shadows of Doubt\BepInEx\core\BepInEx.Unity.Mono.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="ExternalLogger">
+      <HintPath>ExternalLogger.dll</HintPath>
+    </Reference>
     <Reference Include="FMODUnity">
       <HintPath>FMODUnity.dll</HintPath>
     </Reference>
