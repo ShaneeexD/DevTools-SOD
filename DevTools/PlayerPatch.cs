@@ -77,7 +77,8 @@ namespace DevTools
                 Player.Instance.EnableCharacterController(false);
                 sessionData = SessionData.Instance;
                 sessionData.PauseGame(false, false, false);
-
+                InputController.Instance.enabled = false;
+                
                 if (Input.GetKeyInt(BepInEx.Unity.IL2CPP.UnityEngine.KeyCode.Return))
                 {
                     CommandUI.OnSubmitCommand();

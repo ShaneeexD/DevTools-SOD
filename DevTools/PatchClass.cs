@@ -14,8 +14,7 @@ namespace DevTools
         public static ManualLogSource Logger;
         private Harmony harmony;
 
-        public static ConfigEntry<float> walkSpeedMultiplier;
-        public static ConfigEntry<float> runSpeedMultiplier;
+        public static ConfigEntry<bool> useSteamOverlayHelpCommand;
 
         public override void Load()
         {
@@ -28,6 +27,8 @@ namespace DevTools
                 harmony = new Harmony("DevTools");
                 harmony.PatchAll();
                 Logger.LogInfo("All patches applied.");
+
+                useSteamOverlayHelpCommand = Config.Bind<bool>("General", "UseSteamOverlayHelpCommand", true, "Use Steam Overlay to open help command.");
             }
 
             catch (Exception ex)

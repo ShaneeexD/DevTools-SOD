@@ -44,6 +44,7 @@ namespace DevTools
         {
             Player player = Player.Instance;
             murderController.currentMurderer.AddPoisoned(amount, player);
+            
         }
         public void KillMurderer()
         {

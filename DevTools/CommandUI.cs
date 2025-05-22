@@ -100,6 +100,7 @@ namespace DevTools
             {
                 Player.Instance.EnableCharacterController(true);
                 Player.Instance.EnablePlayerMouseLook(true, true);
+                InputController.Instance.enabled = true;
                 UnityEngine.Object.Destroy(PlayerPatch.panelObject);
                 PlayerPatch.sessionData.ResumeGame();
                 DevTools.Logger.LogInfo("Command Input Field destroyed.");

@@ -10,7 +10,7 @@ using System.IO;
 using SOD.Common.Extensions;
 using Il2CppSystem.Linq.Expressions.Interpreter;
 using UnityEngine.UIElements;
-
+using Steamworks;
 namespace DevTools
 {
     [AttributeUsage(AttributeTargets.Method, Inherited = false)]
@@ -68,6 +68,9 @@ namespace DevTools
 
         public static void ExecuteCommand(string command)
         {
+            if (string.IsNullOrEmpty(command))
+                return;
+
             playerInfoProvider = new PlayerInfoProvider();
             victimInfoHelper = new VictimInfoHelper();
             purpInfoProvider = new PurpInfoProvider();
@@ -77,29 +80,27 @@ namespace DevTools
             player = Player.Instance;
             murderController = MurderController.Instance;
 
-            if (command.StartsWith("/"))
+            string[] parts = command.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                return;
+
+            string commandName = parts[0].ToLower();
+            string[] args = parts.Skip(1).ToArray();
+
+            if (commands.TryGetValue(commandName, out Action<string[]> action))
             {
-                string[] splitCommand = command.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-                if (splitCommand.Length > 0)
+                try
                 {
-                    string commandName = splitCommand[0].ToLower(); //case-insensitive
-                    string[] args = splitCommand.Skip(1).ToArray(); // Get arguments after the command name
-
-                    // Check if the command exists and invoke it
-                    if (commands.TryGetValue(commandName, out Action<string[]> commandAction))
-                    {
-                        commandAction(args);
-                    }
-                    else
-                    {
-                        Lib.GameMessage.ShowPlayerSpeech($"Unknown command: {commandName}", 2, true);
-                    }
+                    action(args);
+                }
+                catch (Exception ex)
+                {
+                    Lib.GameMessage.ShowPlayerSpeech($"Error executing command: {ex.Message}", 3, true);
                 }
             }
             else
             {
-                SendChatMessage(command);
+                Lib.GameMessage.ShowPlayerSpeech($"Unknown command: {commandName}", 3, true);
             }
         }
 
@@ -681,7 +682,6 @@ namespace DevTools
                 return;
             }
 
-            // Collect unique furniture preset names
             HashSet<string> uniqueFurniturePresets = new HashSet<string>();
             foreach (var furniture in currentRoom.individualFurniture)
             {
@@ -691,10 +691,8 @@ namespace DevTools
                 }
             }
 
-            // Create a message with all furniture preset names
             string furnitureList = string.Join("\n", uniqueFurniturePresets.OrderBy(name => name));
 
-            // Create a JSON-formatted version for clipboard
             string jsonFormatted = string.Join("\", \"", uniqueFurniturePresets.OrderBy(name => name));
             if (!string.IsNullOrEmpty(jsonFormatted))
             {
@@ -705,7 +703,6 @@ namespace DevTools
                 jsonFormatted = "[]";
             }
 
-            // Save to a file that can be easily accessed
             try
             {
                 string directoryPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
@@ -715,7 +712,6 @@ namespace DevTools
             }
             catch (Exception ex)
             {
-                // If file write fails, just show the list
                 Lib.GameMessage.ShowPlayerSpeech($"Furniture in {currentRoom.name} failed to save JSON: {ex.Message}", 5, true);
             }
         }
@@ -738,7 +734,6 @@ namespace DevTools
                 }
             }
 
-            // Create a JSON-formatted version
             string jsonFormatted = string.Join("\", \"", allFloorPresets.OrderBy(name => name));
             if (!string.IsNullOrEmpty(jsonFormatted))
             {
@@ -749,7 +744,6 @@ namespace DevTools
                 jsonFormatted = "[]";
             }
 
-            // Save to a file that can be easily accessed
             try
             {
                 string directoryPath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
@@ -759,7 +753,6 @@ namespace DevTools
             }
             catch (Exception ex)
             {
-                // If file write fails, just show a message
                 Lib.GameMessage.ShowPlayerSpeech($"Failed to save floor presets to JSON: {ex.Message}", 5, true);
             }
         }
@@ -774,7 +767,68 @@ namespace DevTools
         [Command("/help")]
         private static void HelpCommand(string[] args)
         {
-            Application.OpenURL("https://github.com/ShaneeexD/DevTools-SOD/wiki");
+            const string wikiUrl = "https://github.com/ShaneeexD/DevTools-SOD/wiki/Commands";
+    
+            if (TryOpenSteamOverlay(wikiUrl))
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Opening DevTools wiki in Steam overlay...", 2, true);
+                return;
+            }
+    
+            // If Steam overlay fails, fall back to browser only
+            DevTools.Logger.LogWarning("Steam overlay unavailable, opening in browser");
+            try
+            {
+                Application.OpenURL(wikiUrl);
+                Lib.GameMessage.ShowPlayerSpeech("Opening DevTools wiki in browser...", 2, true);
+            }
+            catch (System.Exception ex)
+            {
+                DevTools.Logger.LogError($"Failed to open URL: {ex.Message}");
+                Lib.GameMessage.ShowPlayerSpeech($"Failed to open wiki - please visit: {wikiUrl}", 5, true);
+            }
+        }
+        
+        [Command("/exec")]
+        private static void ExecCommand(string[] args)
+        {
+            if (args.Length < 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Usage: /exec <configName>", 3, true);
+                return;
+            }
+            
+            string configName = args[0];
+            
+            ConfigManager.ExecuteConfig(configName);
+        }
+        
+
+        private static bool TryOpenSteamOverlay(string url)
+        {
+            try
+            {
+                DevTools.Logger.LogInfo("Attempting Method 1: Force Steam API initialization");
+        
+                if (!SteamAPI.Init())
+                {
+                    DevTools.Logger.LogWarning("SteamAPI.Init() returned false");
+                }
+        
+                var steamId = SteamUser.GetSteamID();
+                if (steamId.IsValid())
+                {
+                    DevTools.Logger.LogInfo($"Steam initialized successfully, User ID: {steamId}");
+                    SteamFriends.ActivateGameOverlayToWebPage(url, Steamworks.EActivateGameOverlayToWebPageMode.k_EActivateGameOverlayToWebPageMode_Modal);
+                    return true;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                DevTools.Logger.LogWarning($"Method 1 failed: {ex.Message}");
+            }
+    
+            return false;
         }
 
         [Command("/noclip")]
@@ -799,6 +853,154 @@ namespace DevTools
         private static void CompleteSideJobCommand(string[] args)
         {
             CasePanelController.Instance.activeCase.job.Complete();
+        }
+
+        [Command("/time")]
+        private static void TimeSpeedCommand(string[] args)
+        {
+            if (args.Length != 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /time <slow|normal|fast|veryFast|simulation>", 2, true);
+                return;
+            }
+
+            string speedArg = args[0].ToLower();
+            SessionData.TimeSpeed timeSpeed;
+
+            switch (speedArg)
+            {
+                case "slow":
+                    timeSpeed = SessionData.TimeSpeed.slow;
+                    break;
+                case "normal":
+                    timeSpeed = SessionData.TimeSpeed.normal;
+                    break;
+                case "fast":
+                    timeSpeed = SessionData.TimeSpeed.fast;
+                    break;
+                case "veryfast":
+                    timeSpeed = SessionData.TimeSpeed.veryFast;
+                    break;
+                case "simulation":
+                    timeSpeed = SessionData.TimeSpeed.simulation;
+                    break;
+                default:
+                    Lib.GameMessage.ShowPlayerSpeech("Invalid time speed. Use: slow, normal, fast, veryFast, or simulation", 2, true);
+                    return;
+            }
+            
+            SessionData.Instance.SetTimeSpeed(timeSpeed);
+            Lib.GameMessage.ShowPlayerSpeech($"Time speed set to {speedArg}", 2, true);
+        }
+
+        [Command("/buy")]
+        private static void BuyPropertyCommand(string[] args)
+        {
+            if (args.Length != 1)
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Invalid usage. Use: /buy <mwork|vwork>", 2, true);
+                return;
+            }
+
+            string propertyType = args[0].ToLower();
+            NewAddress businessLocation = null;
+            string ownerName = "";
+
+            // Get the business location based on the command argument
+            switch (propertyType)
+            {
+                case "mwork":
+                    if (murderController.currentMurderer != null && 
+                        murderController.currentMurderer.job != null && 
+                        murderController.currentMurderer.job.employer != null && 
+                        murderController.currentMurderer.job.employer.placeOfBusiness != null && 
+                        murderController.currentMurderer.job.employer.placeOfBusiness.thisAsAddress != null)
+                    {
+                        businessLocation = murderController.currentMurderer.job.employer.placeOfBusiness.thisAsAddress;
+                        ownerName = murderController.currentMurderer.firstName + " " + murderController.currentMurderer.surName;
+                    }
+                    else
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("Murderer doesn't have a valid workplace address.", 2, true);
+                        return;
+                    }
+                    break;
+
+                case "vwork":
+                    if (murderController.currentVictim != null && 
+                        murderController.currentVictim.job != null && 
+                        murderController.currentVictim.job.employer != null && 
+                        murderController.currentVictim.job.employer.placeOfBusiness != null && 
+                        murderController.currentVictim.job.employer.placeOfBusiness.thisAsAddress != null)
+                    {
+                        businessLocation = murderController.currentVictim.job.employer.placeOfBusiness.thisAsAddress;
+                        ownerName = murderController.currentVictim.firstName + " " + murderController.currentVictim.surName;
+                    }
+                    else
+                    {
+                        Lib.GameMessage.ShowPlayerSpeech("Victim doesn't have a valid workplace address.", 2, true);
+                        return;
+                    }
+                    break;
+
+                default:
+                    Lib.GameMessage.ShowPlayerSpeech("Invalid property type. Use: mwork (murderer's workplace) or vwork (victim's workplace)", 2, true);
+                    return;
+            }
+
+            // Check if the business location is valid
+            if (businessLocation != null)
+            {
+                // Try to find the business location in the game
+                bool foundLocation = false;
+                foreach (var location in CityData.Instance.gameLocationDirectory)
+                {
+                    if (location != null && location.thisAsAddress == businessLocation)
+                    {
+                        foundLocation = true;
+                        break;
+                    }
+                }
+                
+                if (foundLocation)
+                {
+                    // Add the location to the player's keyring to gain access
+                    Player.Instance.AddToKeyring(businessLocation, true);
+                    
+                    // Add the location to the player's authority locations
+                    Player.Instance.AddLocationOfAuthorty(businessLocation);
+                    Player.Instance.apartmentsOwned.Add(businessLocation);
+                    // Find the game location object for this address
+                    NewGameLocation gameLocation = null;
+                    foreach (var loc in CityData.Instance.gameLocationDirectory)
+                    {
+                        if (loc != null && loc.thisAsAddress == businessLocation)
+                        {
+                            gameLocation = loc;
+                            break;
+                        }
+                    }
+                    
+                    // Add the location to our patch list to enable decor editing
+                    if (gameLocation != null && !BioScreenControllerPatch.businessLocations.Contains(gameLocation))
+                    {
+                        BioScreenControllerPatch.businessLocations.Add(gameLocation);
+                    }
+                    
+                    // We don't need to add to owned apartments directly since our patch will handle it
+                    // The owned apartments list expects NewGameLocation objects, not NewAddress objects
+                    
+                    Lib.GameMessage.ShowPlayerSpeech($"Successfully gained access to {ownerName}'s workplace at {businessLocation.name}. You can now edit the decor here.", 3, true);
+                }
+                else
+                {
+                    Lib.GameMessage.ShowPlayerSpeech("Unable to find the workplace location in the game world.", 2, true);
+                }
+            }
+            else
+            {
+                Lib.GameMessage.ShowPlayerSpeech("Unable to find a valid business location.", 2, true);
+            }
         }
 
         [Command("/giveSocialCredit")]
